@@ -7,25 +7,25 @@ def encode(data, source_path, key, use_xor):
     with open(source_path, "rb") as f:
         source_data = f.read()
 
-    # Create a map: { byte: [offset1, offset2, ...] }
     byte_map = {}
     for offset, byte in enumerate(source_data):
         byte_map.setdefault(byte, []).append(offset)
 
-    # Encode
     indices = []
     xor_val = key if use_xor else 0
-    
+
     for b in data:
         if b not in byte_map:
             sys.exit(f"[-] Byte {hex(b)} not found in source!")
         indices.append(random.choice(byte_map[b]) ^ xor_val)
 
-    # Format Output
-    print(f"// Size: {len(indices)} bytes")
+    # Prepend the key so the C++ knows what to do
+    final_output = [xor_val] + indices
+
+    print(f"// Total Elements: {len(final_output)} (Key + {len(indices)} bytes)")
     print("unsigned long long alphabetSoup[] = {")
-    for i in range(0, len(indices), 12):
-        print("    " + ", ".join(map(str, indices[i:i+12])) + ",")
+    for i in range(0, len(final_output), 12):
+        print("    " + ", ".join(map(str, final_output[i:i+12])) + ",")
     print("};")
 
 def main():
