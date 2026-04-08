@@ -33,6 +33,20 @@ Run the helper script to map your shellcode to a target dictionary file. This ex
 
 > `python encoder.py -i shellcode.txt -s C:\Windows\Help\mui\0409\cliconf.chm -k 0x4A45B9A3 --xor`
 
+```
+dev\AlphabetSoup> python encoder.py -h
+usage: encoder.py [-h] [-i INPUT] [-t TEXT] -s SOURCE [-k KEY] [--xor]
+
+options:
+  -h, --help           show this help message and exit
+  -i, --input INPUT    File with \x00 style shellcode
+  -t, --text TEXT      Plain text string
+  -s, --source SOURCE
+  -k, --key KEY
+  --xor
+dev\AlphabetSoup>
+```
+
 ### 3. Update the Loader
 Take the generated `alphabetSoup` array and paste it into the PoC loader template. The examples cover both **Local Injection** (self) and **Remote Injection** (targeting a separate process).
 
