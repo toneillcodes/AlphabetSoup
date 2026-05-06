@@ -1,6 +1,9 @@
-import random, re, os, sys, argparse
+import random
+import os
+import sys
+import argparse
 
-def encode(data, source_path, key, use_xor):
+def encode(data, source_path, key, use_xor, output_path=None):
     if not os.path.exists(source_path):
         sys.exit(f"[-] Source missing: {source_path}")
 
@@ -16,40 +19,52 @@ def encode(data, source_path, key, use_xor):
 
     for b in data:
         if b not in byte_map:
-            sys.exit(f"[-] Byte {hex(b)} not found in source!")
+            sys.exit(f"[-] Byte {hex(b)} not found in source dictionary!")
         indices.append(random.choice(byte_map[b]) ^ xor_val)
 
-    # Prepend the key so the C++ knows what to do
     final_output = [xor_val] + indices
 
-    print(f"// Total Elements: {len(final_output)} (Key + {len(indices)} bytes)")
-    print("unsigned long long alphabetSoup[] = {")
+    # Prepare the string content
+    header = f"// Total Elements: {len(final_output)} (Key: {hex(xor_val)} + {len(indices)} indices)\n"
+    array_start = "unsigned long long alphabetSoup[] = {\n"
+    array_body = ""
     for i in range(0, len(final_output), 12):
-        print("    " + ", ".join(map(str, final_output[i:i+12])) + ",")
-    print("};")
+        array_body += "    " + ", ".join(map(str, final_output[i:i+12])) + ",\n"
+    array_end = "};\n"
+    
+    full_payload = header + array_start + array_body + array_end
+
+    if output_path:
+        try:
+            with open(output_path, "w") as f:
+                f.write(full_payload)
+            print(f"[+] Alphabet Soup written to: {output_path}")
+        except Exception as e:
+            sys.exit(f"[-] Failed to write to file: {e}")
+    else:
+        print(full_payload)
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("-i", "--input", help="File with \\x00 style shellcode")
-    parser.add_argument("-t", "--text", help="Plain text string")
-    parser.add_argument("-s", "--source", required=True)
-    parser.add_argument("-k", "--key", default="0")
-    parser.add_argument("--xor", action="store_true")
+    parser = argparse.ArgumentParser(description="AlphabetSoup Encoder")
+    parser.add_argument("-i", "--input", help="Path to raw .bin shellcode file")
+    parser.add_argument("-t", "--text", help="Plain text string to encode")
+    parser.add_argument("-s", "--source", required=True, help="System file (e.g. cliconf.chm)")
+    parser.add_argument("-k", "--key", default="0x0", help="XOR key (int or hex)")
+    parser.add_argument("-o", "--output", help="Save output to a specific file (e.g. soup.h)")
+    parser.add_argument("--xor", action="store_true", help="Enable XOR encoding of indices")
     args = parser.parse_args()
 
-    # Determine input data
     if args.text:
-        # Encode string + null terminator
         raw_data = args.text.encode() + b'\x00'
     elif args.input:
-        with open(args.input, "r") as f:
-            # Matches \xHH or 0xHH
-            hex_pts = re.findall(r'(?:\\x|0x)([0-9a-fA-F]{2})', f.read())
-            raw_data = bytes([int(h, 16) for h in hex_pts])
+        if not os.path.exists(args.input):
+            sys.exit(f"[-] Input file not found: {args.input}")
+        with open(args.input, "rb") as f:
+            raw_data = f.read()
     else:
-        sys.exit("[-] Use --input or --text")
+        sys.exit("[-] Use --input (for .bin) or --text")
 
-    encode(raw_data, args.source, int(args.key, 0), args.xor)
+    encode(raw_data, args.source, int(args.key, 0), args.xor, args.output)
 
 if __name__ == "__main__":
     main()
